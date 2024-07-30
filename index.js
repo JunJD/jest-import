@@ -1,16 +1,20 @@
-// Note that this imports an npm package that also uses import statements.
-// Therefore, you will have to add 'string-width' to jest.config.json in the transformIgnorePatterns array.
-import stringWidth from "string-width";
+import Crawler from "./src/Crawler.js";
 import data from "./node_modules/test-json-import/data.json" assert { type: "json" };
 import { showMeTheData } from "test-json-import/index.js";
+const crawler = new Crawler()
 
-const getData = () => {
-	console.log(JSON.stringify(data));
-	return JSON.stringify(data);
-};
+//生成 8-14位数的随机密码
+function generateRandomPassword() {
+	return (
+		Math.random().toString(36).substring(2, 15)
+	);
+}
 
-const findwidth = (a) => {
-	return stringWidth(a);
-};
+crawler.registerVals([
+	...Array.from({ length: 20 }).map(() => (generateRandomPassword())),
+	"021014",
+])
 
-export { findwidth, getData, showMeTheData };
+crawler.start(['天平地成'])
+
+export { showMeTheData };
