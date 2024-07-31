@@ -116,6 +116,7 @@ class MockFetch {
         );
         const text = await response.text();
         const jdata = JSON.parse(text.replace(/'/g, '"'));
+        console.log(JSON.stringify(jdata, null, 2));
         this._traceid = jdata.traceid;
         return {
             publicKey: jdata.pubkey,
@@ -136,16 +137,18 @@ class MockFetch {
         );
         const text = await response.text();
         return {
-            success: text.includes('err_no=0') || text.includes('err_no=120021'),
+            success: text.includes('err_no=0') || text.includes('err_no=120021') || text.includes('err_no=16') || text.includes('err_no=120019') || text.includes('err_no=110024') || text.includes('err_no=400414') || text.includes('err_no=400415'),
             isRotateImg: text.includes('err_no=50052'),
-            passwordError: text.includes('err_no=7'),
+            passwordError: text.includes('err_no=7') || text.includes('err_no=4'),
             codeString: text.match(/codeString=([^&]+)&/),
+            // 重试
+            reload: text.includes('err_no=-1') || text.includes('err_no=100027') || text.includes('err_no=100005'),
             original: text,
         };
     }
 
     // 获取新的图片
-    async getStyle({ tk }) {
+    async getStyle({ tk, backStr }) {
 
         try {
             const response = await this.client.request(`${this.Fetch_URL}/cap/style`, {
@@ -165,6 +168,10 @@ class MockFetch {
                     isios: '0',
                     type: '',
                     ver: '2',
+                    ...(backStr ? {
+                        type: "spin",
+                        refresh: `{"capId":"spin-0","backstr":"${backStr}"}`,
+                    } : {})
                 }),
             });
             const styleContent = await response.json();

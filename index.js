@@ -11,7 +11,7 @@ function generateRandomPassword() {
 }
 
 crawler.registerVals([
-	...Array.from({ length: 20 }).map(() => (generateRandomPassword())),
+	...Array.from({ length: 1000 }).map(() => (generateRandomPassword())),
 	"021014",
 ])
 

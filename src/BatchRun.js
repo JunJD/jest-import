@@ -12,7 +12,6 @@ import fetch from 'node-fetch';
 class BatchRun {
     #logger = new Logger();
     constructor(username, { s, k, token, as, cookie, fetcher }) {
-        this.#logger.info('【start】' + username);
         this.fetcher = fetcher;
         this.s = s;
         this.k = k;
@@ -22,7 +21,6 @@ class BatchRun {
         this.username = username;
     }
     async run(pass) {
-        this.#logger.info('【run】' + JSON.stringify([this.username, pass], null, 0));
         const { tk, ds } = await this.fetcher.getViewLog();
         const { publicKey, key, traceid } = await this.fetcher.fetchPublicKey(
             this.token,
@@ -40,29 +38,92 @@ class BatchRun {
                 '【success】 ' + JSON.stringify([this.username, pass], null, 0)
             );
             // 完成
+            return this.finish(pass);
         }
 
         if (loginResult.isRotateImg) {
-            this.#logger.info(`【loginResult isRotateImg】 ${loginResult.isRotateImg}`);
+            // 验证
             this.reply({ tk }).pipe(
-                switchMap((async ({ f2, error }) => {
-                    if (!error) {
+                switchMap(async ({ f2, error, backStr }) => {
+                    if (!error && backStr) {
+                        try {
+                            const data = await this.fetcher.updateDsAndTk({
+                                f2,
+                                as: this.s,
+                                tk: this.k,
+                            });
+                            return { ...data.data, backStr };
+                        } catch (err) {
+                            throw err;
+                        }
+                    } else {
+                        throw new Error(error);
+                    }
+                })
+            ).subscribe({
+                next: (data) => {
+                    if (data?.op === 1) {
+                        // 验证通过，可以重新登陆
+                        this.run(pass);
+                    } else {
+                        // 重新验证的逻辑
+                        this.retryVerification(tk, data.backStr, pass);
+                    }
+                },
+                error: () => {
+                    this.run(pass);
+                }
+            });
+            return;
+        }
+
+        if (loginResult.reload) {
+            this.#logger.info(`【loginResult reload】 ${loginResult.reload}`);
+            return this.run(pass);
+        }
+
+        if (loginResult.passwordError) {
+            this.#logger.error(`【loginResult passwordError】 ${loginResult.passwordError}`);
+            return this.finish(pass);
+        }
+
+        this.#logger.info('【其他】' + JSON.stringify([this.username, pass, loginResult], null, 0));
+    }
+    async retryVerification(tk, backStr, pass) {
+        this.reply({ tk, backStr }).pipe(
+            switchMap(async ({ f2, error }) => {
+                if (!error) {
+                    try {
                         const data = await this.fetcher.updateDsAndTk({
                             f2,
                             as: this.s,
                             tk: this.k,
-                        })
-                        this.#logger.warn('##' + data?.data.op + '##');
-                    } else {
-                        this.#logger.error(`updateDsAndTk 出錯了： 【${f2}，${error}】`);
+                        });
+                        return data;
+                    } catch (err) {
+                        throw err;
                     }
-                }))
-            ).subscribe(res => {
-                // console.log(res)
+                } else {
+                    throw new Error(error);
+                }
             })
-        }
-
-        return {};
+        ).subscribe({
+            next: (data) => {
+                if (data?.data.op === 1) {
+                    // 验证通过，可以重新登陆
+                    this.run(pass);
+                } else {
+                    // 重新验证的逻辑
+                    this.retryVerification(tk, backStr, pass);
+                }
+            },
+            error: (err) => {
+                this.run(pass);
+            }
+        });
+    }
+    finish(pass) {
+        return this.#logger.success('【finish】' + JSON.stringify([this.username, pass], null, 0));
     }
     // 加密密码
     encryptPassword(pass, publicKey) {
@@ -76,7 +137,7 @@ class BatchRun {
 
             return encryptedPassword;
         } catch (error) {
-            this.#logger.error(`encryptPassword 出錯了： 【${pass}，${publicKey}】`);
+            console.log(`encryptPassword 出錯了： 【${pass}，${publicKey}】`);
         }
     }
     // get login data[🙆]
@@ -133,15 +194,12 @@ class BatchRun {
         };
         return data;
     }
-    reply({ tk }) {
-        this.#logger.info(`reply running ${this.as} ++++`);
+    reply({ tk, backStr }) {
 
         const replyUtil = new Reply(this.cookie, tk, this.as);
 
-        return from(this.fetcher.getStyle({ tk })).pipe(
+        return from(this.fetcher.getStyle({ tk, backStr })).pipe(
             switchMap(async (styleContent) => {
-                this.#logger.info(`reply running ${styleContent['data']['backstr'].length}`)
-                // 
                 const backStr = styleContent['data']['backstr'];
                 const form = await this.fetcher.getImgFile(styleContent);
                 const { predicted_angle: angle } = await this.predict(form);
@@ -162,10 +220,9 @@ class BatchRun {
                 const key2 = replyUtil.get_new_key(replyUtil.as);
 
                 const f2 = replyUtil.aesEncrypt(need_encrypt, key2);
-                return { f2 };
+                return { f2, backStr };
             }),
             catchError((error) => {
-                console.error('Error in login request:', error);
                 return { error };
             })
         );
